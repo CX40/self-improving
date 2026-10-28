@@ -52,12 +52,21 @@ Das offizielle Google-Repository ist eigentlich für Linux und Google Cloud Vert
 2. **Direkte Anbindung an das lokale Abo (`harness2/core/proposer.py`):**
    * Der Zwang zu Google Cloud Vertex AI (`CLAUDE_CODE_USE_VERTEX=1`) wurde entkoppelt, sodass Harness² direkt die lokale `claude`-CLI mit `--model` und `--effort` anspricht.
 
-### 2.2 Asymmetrisches Multi-Tier-Modell-Routing
-Um Token-Kontingente zu schonen und gleichzeitig maximale Analyse-Qualität im Improver zu erreichen, wurden die Rollen im Experiment auf verschiedene Modell-Qualitätsstufen verteilt (`live_multi_tier_demo.py`):
+### 2.2 Herstellerübergreifende Multi-Modell-Orchestrierung (Google Gemini + Anthropic Claude Tiers)
+Ein besonderes Merkmal dieses Experiments ist das **intelligente Zusammenspiel verschiedener KI-Modelle unterschiedlicher Hersteller und Qualitätsstufen (Multi-Vendor & Multi-Tier Orchestration)**. Statt alle Aufgaben monoton über ein einziges teures Modell abzuwickeln, arbeitet hier eine exakt abgestimmte Arbeitsteilung aus **Google Gemini** und der **Anthropic Claude-Familie**:
 
-* **Solver / Executor (`claude-haiku`, `effort: low`):** Schnelles, günstiges Modell für die eigentlichen Aufgaben-Rollouts (`base1`, `inv1`, `dom1`, `agg1`). Zudem erhielt der Solver einen `dispatch_subagent.py`-Mechanismus, über den er bei Bedarf `sub_agents/<name>/AGENT.md` auf `haiku`, `sonnet` oder `opus` spawnen kann.
-* **Improver – Proposer & Composer (`claude-sonnet`, `effort: medium`):** Analysiert die Traces und editiert den 8-Komponenten-Baum unter `context/harness/`.
-* **Selector & Experience Reflector (`claude-opus`, `effort: high`):** Höchste Reasoning-Stufe für die Kausalanalyse am Ende jeder Aufgabe (`EXPERIENCE.md`).
+| Rolle im System | Eingesetztes Modell | Hersteller | Aufwand / Tier | Warum genau dieses Modell für diese Rolle? |
+|---|---|---|---|---|
+| **Architekt, Portierung & Meta-Steuerung** | **Gemini 4 Argon** (in Devin) | **Google** | Medium / High | Analyse des Quellcodes von `google-research/harness2`, Windows-Portierung (`fcntl`, Pfad-Normalisierung), Entwurf der Benchmark-Umgebung (`live_multi_tier_demo.py`) und Steuerung des Gesamtexperiments. |
+| **Solver / Executor (Aufgaben-Ausführung)** | **Claude Haiku 5.5** | **Anthropic** | `effort: low` (Schnell & günstig) | Führt die operativen Rollouts (`base1`, `inv1`, `dom1`, `agg1`) aus. Da im Harness²-Loop pro Aufgabe mehrere Probe-Läufe stattfinden, spart ein kleines, schnelles Modell massiv Token-Kontingent und Zeit. |
+| **Improver (Proposer & Composer)** | **Claude Sonnet** | **Anthropic** | `effort: medium` (Code & Struktur) | Analysiert die Ausführungs-Traces des Haiku-Solvers, deckt Schwachstellen im Harness auf und programmiert selbstständig neue Python-Skripte (`scripts/`), Skills (`skills/`) und Prompts (`systemprompt.md`). |
+| **Selector & Experience Reflector** | **Claude Opus** | **Anthropic** | `effort: high` (Tiefes Reasoning) | Übernimmt die anspruchsvollste kognitive Aufgabe: Den kausalen Vergleich aller Kandidaten-Läufe ohne Musterlösung und die Extraktion belastbarer Lektionen für die `EXPERIENCE.md`-Bibliothek. |
+| **On-Demand Subagent-Dispatching (`C5`)** | **Dynamisch (`haiku` / `sonnet` / `opus`)** | **Anthropic** | Variabel je nach Teilaufgabe | Über den eingebauten `dispatch_subagent.py`-Mechanismus kann der Solver Teilaufgaben an spezialisierte `sub_agents/<name>/AGENT.md` delegieren, die im YAML-Frontmatter ihre eigene Modellstufe (`model: haiku|sonnet|opus`) definieren. |
+
+**Warum diese hersteller- und stufenübergreifende Zusammenarbeit so wirkungsvoll ist:**
+1. **Cross-Vendor-Synergie (Google + Anthropic):** Während das Framework `Harness²` sowie der übergeordnete Coding-Agent (**Gemini 4 Argon**) von Google stammen und die Systemarchitektur orchestrieren, agieren innerhalb der Rekursionsschleife die Modelle von Anthropic (**Claude Haiku, Sonnet, Opus**) als spezialisierte Rollenspieler.
+2. **Ökonomische Skalierung (Token-Effizienz):** Im Harness²-Verfahren werden viele Ausführungen (*Probes*) benötigt, aber nur wenige Reflexionsschritte. Durch den Einsatz von **Haiku** als schnellem „Arbeiter“, **Sonnet** als „Ingenieur“ (Harness-Editor) und **Opus** als „Oberstem Prüfer“ (Reflector) erreicht man die Urteilskraft des größten Modells bei einem Bruchteil der Token-Kosten.
+3. **Gegenseitige Kontrolle (Checks & Balances):** Ein Modell, das seine eigenen Ausgaben prüft, neigt zu blinden Flecken. Hier hingegen schreibt **Sonnet** neue Harness-Komponenten (wie `calc_sla.py`), **Haiku** testet sie unter realen Bedingungen im Workspace, und **Opus** deckt anschließend unbestechlich auf, ob Haiku die von Sonnet gebauten Werkzeuge tatsächlich genutzt oder ignoriert hat.
 
 ### 2.3 Die Test-Domäne: „SLA & Billing Reconciliation“ (`sla-audit-1` & `sla-audit-2`)
 Wir haben zwei aufeinanderfolgende Aufgaben aus derselben Domäne (`sla_reconciliation`) entworfen. In jeder Aufgabe muss der Agent für zwei Unternehmenskunden aus drei Quellen (`contracts.md`, `incidents.log`, `ledger_adjustments.csv`) die exakte SLA-Gutschrift für Juli 2026 berechnen und als `audit_result.json` ausgeben.
@@ -143,7 +152,9 @@ Und auch nach `sla-audit-2` bleibt der Reflector (`opus`) in `reflection/agg1/ed
 
 ## 4. Zusammenfassung der wichtigsten Erkenntnisse
 
-1. **Vollständige 8-Komponenten-Evolution statt reinem Prompt-Tuning:**
+1. **Intelligente Zusammenarbeit verschiedener Hersteller & Modell-Generationen:**
+   Das Experiment zeigt eindrucksvoll, wie sich unterschiedliche Modelle optimal ergänzen: **Google Gemini 4 Argon** adaptiert und steuert das Google-Research-Framework unter Windows, während innerhalb der Harness²-Pipeline **Anthropic Claude Haiku** (schnelle Rollouts), **Claude Sonnet** (Code- & Harness-Engineering) und **Claude Opus** (strenge Kausal-Reflexion) wie ein eingespieltes Team aus Junior-Analyst, Tool-Entwickler und Senior-Auditor zusammenarbeiten.
+2. **Vollständige 8-Komponenten-Evolution statt reinem Prompt-Tuning:**
    Wir konnten live beobachten, wie Harness² eigenständig Python-Skripte (`scripts/calc_sla.py`) analysiert, Bugs darin findet (UTC-Falle, fehlende Deduplizierung, fehlendes `PRE_CREDIT`), sie neu programmiert, den `systemprompt.md` umbaut und in Aufgabe 2 eigenständig eine modulare Skill-Struktur (`skills/sla-reconcile/SKILL.md` + `scripts/sla_check.py`) anlegt.
 2. **Strenge Evidenz-Kontrolle ohne Ground-Truth (Anti-Halluzination bei Self-Improvement):**
    Die größte Stärke von Harness² zeigte sich im Zusammenspiel von `sonnet` (Improver) und `opus` (Reflector): Obwohl der Improver ein fachlich perfektes Python-Skript geschrieben hatte, prüfte der Reflector anhand der echten Tool-Aufrufe im Ausführungs-Log (`trajectory.md`), ob der Solver dieses Skript überhaupt benutzt hat. So unterscheidet Harness² sauber zwischen *„Der Code im Harness sieht gut aus“* und *„Die Änderung hat das Verhalten des Agenten nachweislich verbessert“*.
