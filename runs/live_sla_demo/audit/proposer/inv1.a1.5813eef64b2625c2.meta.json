@@ -1,0 +1,11 @@
+{
+  "label": "inv1.a1",
+  "ok": true,
+  "channel": "claude_cli",
+  "model": "sonnet",
+  "effort": "medium",
+  "attempts": 1,
+  "wall_s": 38.5,
+  "cost_usd": 0.1747214,
+  "error": ""
+}

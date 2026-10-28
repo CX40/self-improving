@@ -1,0 +1,11 @@
+{
+  "label": "agg1.a1",
+  "ok": true,
+  "channel": "claude_cli",
+  "model": "sonnet",
+  "effort": "medium",
+  "attempts": 1,
+  "wall_s": 25.7,
+  "cost_usd": 0.13185829999999998,
+  "error": ""
+}

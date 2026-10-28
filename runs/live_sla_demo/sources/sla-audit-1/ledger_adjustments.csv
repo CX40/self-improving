@@ -1,0 +1,5 @@
+entry_id,customer,type,amount_usd,memo
+ADJ-01,ACME_CORP,INVOICE,12000.00,July 2026 Base Fee
+ADJ-02,ACME_CORP,PRE_CREDIT,-500.00,Goodwill credit already applied to July invoice for SLA
+ADJ-03,GLOBEX_INC,INVOICE,4500.00,July 2026 Base Fee
+ADJ-04,GLOBEX_INC,PRE_CREDIT,0.00,No prior credit applied

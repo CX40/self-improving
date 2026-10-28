@@ -1,0 +1,6 @@
+<notes>
+- kept -> dom1 adopted wholesale (auditor system prompt with a trigger line for `sla-reconcile`, the new skill and its `skills/sla-reconcile/scripts/sla_check.py`, and deletion of `scripts/calc_sla.py`). Base1 and both candidates delivered the same correct numbers (INITECH_DE 125/4000/3700/4000, UMBRELLA_US 75/600/500/5400), so none of them lost output. The base system prompt said "run calc_sla.py quickly and finish". That script uses UTC months, no dedup and no PRE_CREDIT, so following it would be wrong. Base1 got the right answer only because it ignored the prompt and computed by hand. That is a single rollout, but the prompt and script defect is visible in the harness files themselves. The skill is on-demand and the system prompt change is small.
+- dropped -> inv1's rewrite of `calc_sla.py` plus its longer system prompt, which embeds expected result values. Its rollout was equivalent to dom1's. Putting the matter's answers in always-on text is more cost and overfitting risk, and the dom1 skill covers the same ground.
+- kept -> the schema stays exactly as the task defines it. Both dom1 and the base put the PRE_CREDIT caveat in the reply, not in the JSON.
+- checked -> no `{{` template braces in the adopted system prompt or skill.
+</notes>

@@ -1,0 +1,5 @@
+entry_id,customer,type,amount_usd,memo
+ADJ-11,INITECH_DE,INVOICE,8000.00,July 2026 Base Fee
+ADJ-12,INITECH_DE,PRE_CREDIT,-300.00,Goodwill credit already applied to July invoice
+ADJ-13,UMBRELLA_US,INVOICE,6000.00,July 2026 Base Fee
+ADJ-14,UMBRELLA_US,PRE_CREDIT,-100.00,Goodwill credit already applied to July invoice

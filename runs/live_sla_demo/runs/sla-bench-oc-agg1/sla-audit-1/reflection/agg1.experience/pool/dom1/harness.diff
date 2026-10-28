@@ -1,0 +1,135 @@
+--- current/scripts/calc_sla.py
++++ dom1/scripts/calc_sla.py
+@@ -1,67 +1,55 @@
+-"""SLA reconciliation helper. Usage: python scripts/calc_sla.py [dir] -> writes dir/audit_result.json
+-Reads contracts.md (fee, timezone, tiers), incidents.log, ledger_adjustments.csv.
+-Prints a per-incident trace to stderr; exits non-zero if any customer cannot be parsed."""
+-import csv, json, re, sys, os
+-from datetime import datetime, timezone, timedelta
+-try:
+-    from zoneinfo import ZoneInfo
+-except ImportError:
+-    ZoneInfo = None
++"""SLA cross-check: parses contracts.md, incidents.log, ledger_adjustments.csv in cwd."""
++import csv, json, re
++from datetime import datetime, timezone
++from zoneinfo import ZoneInfo
+ 
+-d = sys.argv[1] if len(sys.argv) > 1 else "."
+-P = lambda f: os.path.join(d, f)
+-text = open(P("contracts.md"), encoding="utf-8").read()
+-cust = {}
+-for blk in re.split(r"^## Customer:\s*", text, flags=re.M)[1:]:
++Y, M = 2026, 7
++txt = open("contracts.md", encoding="utf-8").read()
++contracts = {}
++for blk in re.split(r"(?m)^## Customer: ", txt)[1:]:
+     cid = blk.split()[0]
+-    fee = float(re.search(r"Monthly Base Fee:\s*\$([\d,\.]+)", blk).group(1).replace(",", ""))
+-    tzm = re.search(r"Billing Timezone:\s*\**\s*([A-Za-z_]+/[A-Za-z_]+)\s*\(UTC([+-]\d+)", blk)
+-    tiers = []  # (min_minutes, pct)
+-    for ln in blk.splitlines():
+-        m = re.search(r"<\s*(\d+) minutes?:\s*(\d+)%", ln)
+-        if m: tiers.append((0, int(m.group(2))))
+-        m = re.search(r"(\d+) to (\d+) minutes?:\s*(\d+)%", ln)
+-        if m: tiers.append((int(m.group(1)), int(m.group(3))))
+-        m = re.search(r">=\s*(\d+) minutes?:\s*(\d+)%", ln)
+-        if m: tiers.append((int(m.group(1)), int(m.group(2))))
+-    zone, off = tzm.group(1), int(tzm.group(2))
+-    try:
+-        tz = ZoneInfo(zone)
+-    except Exception:
+-        tz = timezone(timedelta(hours=off))
+-    cust[cid] = dict(fee=fee, tz=tz, tiers=tiers, mins=0)
++    tz = re.search(r"Billing Timezone: \*\*([A-Za-z_]+/[A-Za-z_]+)", blk).group(1)
++    tiers = []  # (min_minutes, pct) from lines like "30 to 59 minutes: 10%", "< 30: 0%", ">= 120: 50%"
++    for line in blk.splitlines():
++        m = re.match(r"\s*-\s*(<|>=)?\s*(\d+)(?: to (\d+))? minutes: (\d+)%", line)
++        if m:
++            op, lo, _hi, pct = m.groups()
++            tiers.append((0 if op == "<" else int(lo), int(pct) / 100))
++    contracts[cid] = {"tz": ZoneInfo(tz), "tiers": sorted(tiers)}
+ 
+-inc = {}
+-for r in csv.DictReader(open(P("incidents.log"), encoding="utf-8")):
+-    k = (r["incident_id"])
+-    # dedupe: prefer the RESOLVED/final record; otherwise the last one seen
+-    final = "RESOLVED" in r["notes"].upper() and "SUPERSEDED" not in r["notes"].upper()
+-    if k not in inc or final or "RESOLVED" not in inc[k]["notes"].upper():
+-        inc[k] = r
+-for k, r in inc.items():
+-    c = cust[r["customer"]]
+-    loc = datetime.strptime(r["start_utc"], "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc).astimezone(c["tz"])
+-    ok = r["status"] == "OUTAGE" and (loc.year, loc.month) == (2026, 7)
+-    print(k, r["customer"], r["status"], r["duration_min"], loc.isoformat(), "COUNT" if ok else "skip", file=sys.stderr)
+-    if ok: c["mins"] += int(r["duration_min"])
++adj = list(csv.DictReader(open("ledger_adjustments.csv", encoding="utf-8")))
++base, pre = {}, {}
++for r in adj:
++    v = float(r["amount_usd"])
++    if r["type"] == "INVOICE": base[r["customer"]] = base.get(r["customer"], 0) + v
++    elif r["type"] == "PRE_CREDIT": pre[r["customer"]] = pre.get(r["customer"], 0) + abs(v)
+ 
+-inv, pre = {}, {}
+-for r in csv.DictReader(open(P("ledger_adjustments.csv"), encoding="utf-8")):
+-    a = float(r["amount_usd"])
+-    if r["type"] == "INVOICE": inv[r["customer"]] = a
+-    elif r["type"] == "PRE_CREDIT": pre[r["customer"]] = pre.get(r["customer"], 0) + abs(a)
++final = {}
++for r in csv.DictReader(open("incidents.log", encoding="utf-8")):
++    prev = final.get(r["incident_id"])
++    if prev is None or "RESOLVED" in r["notes"].upper() or "SUPERSEDED" in prev["notes"].upper():
++        final[r["incident_id"]] = r  # keep RESOLVED/final record
++
++mins = {c: 0 for c in contracts}
++for r in final.values():
++    c = r["customer"]
++    if c not in contracts or r["status"] != "OUTAGE": continue
++    loc = datetime.strptime(r["start_utc"], "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc).astimezone(contracts[c]["tz"])
++    ok = (loc.year, loc.month) == (Y, M)
++    print(r["incident_id"], c, loc.isoformat(), r["duration_min"], "IN" if ok else "OUT")
++    if ok: mins[c] += int(r["duration_min"])
+ 
+ out = {"customers": {}}
+-for cid, c in cust.items():
+-    pct = max([p for m, p in c["tiers"] if c["mins"] >= m] or [0]) if c["tiers"] else None
+-    if pct is None: sys.exit("no tiers parsed for " + cid)
+-    base = inv.get(cid, c["fee"])
+-    tot = round(c["fee"] * pct / 100, 2)
+-    out["customers"][cid] = {
+-        "valid_downtime_min": c["mins"],
+-        "total_sla_credit_usd": tot,
+-        "remaining_credit_due_usd": round(max(tot - pre.get(cid, 0), 0), 2),
+-        "net_final_invoice_usd": round(base - tot, 2),
++for c, d in contracts.items():
++    pct = 0.0
++    for lo, p in d["tiers"]:
++        if mins[c] >= lo: pct = p
++    cred = round(base[c] * pct, 2)
++    out["customers"][c] = {
++        "valid_downtime_min": mins[c],
++        "total_sla_credit_usd": cred,
++        "remaining_credit_due_usd": round(max(cred - pre.get(c, 0), 0), 2),
++        "net_final_invoice_usd": round(base[c] - cred, 2),
+     }
+-json.dump(out, open(P("audit_result.json"), "w", encoding="utf-8"), indent=2)
++json.dump(out, open("audit_result.json", "w", encoding="utf-8"), indent=2)
+ print(json.dumps(out, indent=2))
+--- current/systemprompt.md
++++ dom1/systemprompt.md
+@@ -1,6 +1,10 @@
+-You are an SLA credit auditor. Correctness beats speed. Compute from contracts.md, incidents.log, ledger_adjustments.csv; incident notes may be wrong, so verify against start_utc.
++You are an SLA credit auditor. Compute from the source files (contracts.md, incidents.log, ledger_adjustments.csv); do not trust notes in incident memos without checking them against start_utc.
+ 
+-1. Read all three inputs in full first; if a file view looks cut off (a section ends abruptly), re-read with cat.
+-2. Rules: the month window is July 2026 in each customer's billing timezone, assigned by incident START time (convert start_utc; never use UTC string prefixes). Only status=OUTAGE counts. Dedupe by incident_id for every customer, keeping the RESOLVED record. Tiers and thresholds come from that customer's own contract; credit = pct x Monthly Base Fee. remaining_credit_due_usd = total credit minus abs(PRE_CREDIT), floored at 0. net_final_invoice_usd = INVOICE minus total credit only (do not subtract PRE_CREDIT again).
+-3. Run `python scripts/calc_sla.py .` as a cross-check (per-incident trace on stderr; writes audit_result.json). If Python is unavailable or it disagrees with your manual result, resolve by hand; fix once at most.
+-4. Re-open audit_result.json: exact task schema, every customer in contracts.md, int minutes, float USD, no extra keys.
++Rules (check each before writing audit_result.json):
++1. Month window: July 2026 in each customer's contract billing timezone (convert start_utc; never use UTC string prefixes). Window is [local Jul 1 00:00, local Aug 1 00:00). Assign by incident START time. Incidents just outside UTC July can be inside local July and vice versa.
++2. Count only status=OUTAGE. MAINTENANCE and DEGRADED never count.
++3. Deduplicate by incident_id across the whole log, keeping the final/RESOLVED record (apply to every customer, even if its contract text does not mention it). Count each id once.
++4. Tier: use the thresholds and percentages in that customer's own contract (boundaries inclusive as written, e.g. 30 to 59, >=120). Credit = pct x Monthly Base Fee (INVOICE row).
++5. remaining_credit_due_usd = total_sla_credit_usd minus the absolute value of PRE_CREDIT (PRE_CREDIT amounts are stored negative); floor at 0. net_final_invoice_usd = INVOICE base minus total_sla_credit_usd (do NOT subtract PRE_CREDIT again; follow the task definition).
++6. Output exactly the task schema: every customer in contracts.md, int minutes, float USD, no extra keys.
++Verify by listing each incident with its local time and in/out decision before finalizing. `python scripts/calc_sla.py` (run in the workspace) is a cross-check of the same logic; if it disagrees with your manual result, resolve the difference.

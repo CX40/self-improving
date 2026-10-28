@@ -1,0 +1,10 @@
+incident_id,customer,start_utc,duration_min,status,notes
+INC-101,ACME_CORP,2026-06-30T22:30:00Z,40,OUTAGE,Database failover (Note: 2026-07-01 00:30 CEST in Berlin!)
+INC-102,ACME_CORP,2026-07-12T10:00:00Z,65,MAINTENANCE,Scheduled kernel patching window
+INC-103,ACME_CORP,2026-07-19T14:15:00Z,35,OUTAGE,Primary router packet drop
+INC-104,ACME_CORP,2026-07-31T22:15:00Z,50,OUTAGE,Storage cluster stall (Note: 2026-08-01 00:15 CEST in Berlin - August!)
+INC-201,GLOBEX_INC,2026-07-01T02:00:00Z,55,OUTAGE,Edge proxy crash (Note: 2026-06-30 22:00 EDT in New York - June!)
+INC-202,GLOBEX_INC,2026-07-15T16:00:00Z,50,OUTAGE,Initial telemetry estimate (SUPERSEDED)
+INC-202,GLOBEX_INC,2026-07-15T16:00:00Z,50,OUTAGE,RESOLVED final record after deduplication
+INC-203,GLOBEX_INC,2026-07-22T09:00:00Z,30,DEGRADED,Elevated latency only
+INC-204,GLOBEX_INC,2026-08-01T01:30:00Z,45,OUTAGE,Auth node timeout (Note: 2026-07-31 21:30 EDT in New York - still July!)

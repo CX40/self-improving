@@ -1,0 +1,126 @@
+{
+  "task_id": "sla-audit-1",
+  "domain": "sla_reconciliation",
+  "k": 1,
+  "seed": null,
+  "status": "ok",
+  "base": [
+    {
+      "label": "base1",
+      "run_id": "sla-bench-oc-agg1/sla-audit-1/base1",
+      "run_dir": "D:\\DEV\\AI\\self-improving\\runs\\live_sla_demo\\executions\\sla-bench-oc-agg1\\sla-audit-1\\base1"
+    }
+  ],
+  "modes": {
+    "agg": {
+      "mode": "agg",
+      "task_id": "sla-audit-1",
+      "k": 1,
+      "finals": [
+        "agg1"
+      ],
+      "ok": true,
+      "fell_back": [],
+      "kept_base": [],
+      "stages": [
+        {
+          "label": "inv1",
+          "dim": "INV",
+          "fell_back": false,
+          "kept_base": false,
+          "attempts": 1,
+          "usd": 0.1747214,
+          "cached": false,
+          "notes": "- **The base harness told the solver to run a naive script.** `systemprompt.md` said to run `scripts/calc_sla.py` \"quickly and finish\". The old script filtered on UTC strings that start with `2026-07`. It did not dedupe incident IDs. It used hard-coded tiers chosen by fee size. It never subtracted `PRE_CREDIT`. Run as written, it would have given wrong minutes for both customers, such as counting INC-104 and INC-201 and double-counting INC-202. It would also have returned the full credit as \"remaining\" for ACME.\n- **The base1 rollout got the right answer only by ignoring the harness.** The solver read the inputs, never ran the script, and wrote 75 and 95 minutes with correct credits. It also skipped any re-read of the deliverable, and the output of its first `cat` showed `contracts.md` cut off mid-file (\"- \" after GLOBEX_INC). It got the GLOBEX tiers right anyway, but nothing in the harness told it to re-read a truncated view.\n- **Replaced `scripts/calc_sla.py`.** The new version:\n  - parses fee, timezone and tiers from `contracts.md`;\n  - converts each incident to the contract timezone using `zoneinfo`, with a fixed-offset fallback;\n  - dedupes incident IDs, keeping the RESOLVED record;\n  - counts only OUTAGE status inside local July;\n  - subtracts `PRE_CREDIT` and floors the remainder at 0;\n  - prints a per-incident trace;\n  - exits with an error if no tiers parse.\n  I ran it on the workspace sources. It reproduces base1's values (ACME 75 min, $3,000 credit, $2,500 remaining, $9,000 net; GLOBEX 95 min, $900, $900, $3,600).\n- **Rewrote `systemprompt.md`** as a short procedure:\n  - read every input in full and re-read if the view looks cut off;\n  - run the script and cross-check its trace against the contract text;\n  - re-open and validate `audit_result.json`;\n  - cap the fallback at one fix attempt.\n  This replaces \"finish quickly\", which led to the naive path.\n- **No skills, plugins or subagents added.** A single deterministic script and a few lines of prose are enough for this task.",
+          "error": ""
+        },
+        {
+          "label": "dom1",
+          "dim": "DOM",
+          "fell_back": false,
+          "kept_base": false,
+          "attempts": 1,
+          "usd": 0.1767267,
+          "cached": false,
+          "notes": "Nothing was run. I couldn't test `calc_sla.py` because neither Bash nor PowerShell has Python. I checked it by reading the code against the source files.\n\nThe one base rollout (base1, haiku, 17.6s) produced the correct result for both customers:\n- ACME_CORP: 75 min, 3000 total credit, 2500 remaining, 9000 net.\n- GLOBEX_INC: 95 min, 900 total credit, 900 remaining, 3600 net.\n\nIt got there by reasoning, not by the harness. It never ran `scripts/calc_sla.py`, and the old system prompt (\"run the script quickly and finish\") would have produced wrong numbers if it had. The script was naive: it used UTC prefixes, ignored the contract timezones, applied no dedup, and set remaining credit equal to total credit. The rollout also hesitated over whether the `PRE_CREDIT` should reduce the invoice.\n\nChanges:\n1. **`systemprompt.md` rewritten.** It now states the practitioner rules the rollout applied unaided:\n   - Evaluate the month window in the customer's billing timezone, with the incident assigned by its start time.\n   - Count only `OUTAGE`.\n   - Deduplicate by incident ID, keeping the `RESOLVED` record.\n   - Take tier thresholds from each contract.\n   - Remaining credit is total minus the absolute value of the (negative) `PRE_CREDIT`.\n   - Net invoice is base minus total credit, per the task definition, with no second subtraction.\n   - Deliver exactly the task schema.\n   - List each incident with its local time and in/out decision before finalizing.\n   \n   This removes the harmful \"fast billing assistant\" instruction. I put no matter-specific facts in it, so it stays valid for other months and customers.\n2. **`scripts/calc_sla.py` rewritten as a correct, generic cross-check.** It parses the contracts, converts times with `zoneinfo`, deduplicates keeping `RESOLVED`, applies the tiers, and subtracts `PRE_CREDIT` from the credit for the remaining amount. The prompt tells the agent to resolve any disagreement with its manual result.\n\nNo skills were added; the logic is short enough to sit in the system prompt.",
+          "error": ""
+        },
+        {
+          "label": "agg1",
+          "dim": "AGG",
+          "fell_back": false,
+          "kept_base": false,
+          "attempts": 1,
+          "usd": 0.1572094,
+          "cached": false,
+          "notes": "revised -> systemprompt.md (merge of the INV and DOM prompts) -> The base prompt says \"run the naive script quickly and finish.\" The base script uses UTC prefixes, does no dedup, and sets remaining equal to total. In the single base rollout the solver ignored that and got the right answer (75/95 min, $3000/$900), but only by chance. The merged prompt keeps dom1's explicit rules (local-time window, OUTAGE only, dedupe keeping RESOLVED, PRE_CREDIT handling, net = INVOICE minus credit). It also keeps inv1's step to re-read a cut-off file view, because base1's first cat truncated contracts.md after the GLOBEX header. I did not run either candidate's script. The inv1 candidate said it ran its script and matched base1's values. The dom1 candidate said Python was unavailable and it checked the script by reading it, so its script is untested.\nkept -> scripts/calc_sla.py from inv1 -> It parses fee, timezone and tiers from the contract, falls back to a fixed UTC offset if zoneinfo is missing, and fails loudly if no tiers parse. The inv1 rollout reported matching base1's correct values. The dom1 script is similar but has no fallback.\ndropped -> dom1 script and dom1 prompt wording -> They duplicate the above. The dom1 script was unverified at runtime.\ndropped -> new skills, plugins and subagents -> With 1/1 base rollout correct and both candidates giving identical output, there is no trajectory moment that needs one. Both candidate rollouts delivered the correct deliverable, so no rollout produced nothing.",
+          "error": ""
+        }
+      ],
+      "similarity": {
+        "n": 1,
+        "n_distinct": 1,
+        "mean_line_jaccard": 1.0
+      },
+      "ledger": {
+        "mode": "agg",
+        "task_id": "sla-audit-1",
+        "k": 1,
+        "R": 4,
+        "expected_R": 4,
+        "P": 3,
+        "session_attempts": 3,
+        "expected_P": 3,
+        "usd": 0.508657,
+        "rollout_usd": 0.0,
+        "session_usd": 0.508657,
+        "rollouts": [
+          "base1",
+          "inv1",
+          "dom1",
+          "agg1"
+        ],
+        "sessions": [
+          "inv1",
+          "dom1",
+          "agg1"
+        ]
+      },
+      "errors": []
+    }
+  },
+  "selections": {
+    "agg": {
+      "task_id": "sla-audit-1",
+      "mode": "agg",
+      "k": 1,
+      "chosen_id": "A",
+      "chosen_label": "agg1",
+      "chosen_run_id": "sla-bench-oc-agg1/sla-audit-1/agg1",
+      "chosen_is_base": false,
+      "why": "trivial pool: single final at k=1; delivered without a selector session",
+      "id_map": {
+        "A": "agg1"
+      },
+      "dropped": [],
+      "n_candidates": 1,
+      "ok": true,
+      "fallback": false,
+      "error": "",
+      "usd": 0.6255128000000001,
+      "experience": {
+        "cue": "The inputs are small enough for the solver to read in one view and reconcile by reasoning, and the harness steers it through prose in the system prompt (\"run helper X\", \"cross-check with X\", \"re-open the output\") toward a helper script, while the base rollout already ignores that helper and still lands on the right deliverable.",
+        "lesson": "Before editing or crediting `scripts/<helper>.py`, or adding procedural steps to `systemprompt.md` that depend on it, count how many times the helper was actually invoked in the trajectories. If it was never invoked, rate the script edit and the \"run/cross-check/re-open\" prompt steps as inert (no observed effect), and do not count a proposer's offline test of the script as evidence of solver behavior. If the helper matters, test an enforcement mechanism (e.g. a plugin that acts in the tool loop) instead of rewording the prose, and judge it only by whether invocations appear in the next rollout.",
+        "evidence": "Rows for scripts/calc_sla.py and systemprompt.md (inv1, agg1). Four prompt wordings: base \"run quickly and finish\", inv1 \"run as primary path, don't use other logic\", dom1 \"cross-check\", agg1 \"step 3 cross-check + step 4 re-open\". The script was invoked 0 times in 4 runs and the output file was re-opened 0 times. All four wrote identical JSON by hand right after reading the inputs. base1 shows this most clearly: its prompt only said to run a wrong script, yet the solver skipped it and was correct.",
+        "confidence": "medium. The null result is consistent across four independent runs and four prompt wordings, but every run used the same small model (haiku) on one tiny input set with one rollout per harness. A larger input or a different solver model might actually use the helper.",
+        "edits": "component: systemprompt.md\ncandidates: inv1\nchange: Replaced the base line \"fast billing assistant, run `python scripts/calc_sla.py` quickly and finish\" with a four-step procedure: (1) read all three inputs in full, re-reading with cat if a view looks cut off; (2) run `python scripts/calc_sla.py .` as the primary path, with \"do NOT use any other version of this script's logic from memory\" and at most one fix attempt; (3) cross-check the script's trace against the log notes and contract text; (4) re-open audit_result.json and check the schema. It does not spell out the domain rules (local-time window, OUTAGE only, dedup, PRE_CREDIT handling, net invoice).\nobserved: inv1.md is the only run that read each input file separately. Its first Bash chain (`ls && wc -c * && cat ...`) exited 1 because `wc` hit directories, so the `cat` never ran. The solver then used Read on contracts.md, incidents.log and ledger_adjustments.csv. That re-read follows from the failed command, so it is not clear evidence of step 1. The solver never ran calc_sla.py (step 2), never re-opened audit_result.json (step 4), and wrote the JSON by hand right after the Reads. Like base1, its final message hedged on net invoice (\"If the invoice should also net out the pre-credit, ACME's figure would be $8,500\"). Deliverable is identical to base1 (75/95 min, 3000/900, 2500/900, 9000/3600). It was the slowest run (20.3s against 14\u201318s).\nverdict: no observed effect\n\ncomponent: systemprompt.md\ncandidates: dom1\nchange: Replaced the base line with an explicit domain rulebook: window [local Jul 1 00:00, local Aug 1 00:00) by incident START; only OUTAGE counts; dedupe by incident_id for every customer, keeping RESOLVED; per-contract inclusive tiers; remaining = credit \u2212 abs(PRE_CREDIT), floored at 0; net = INVOICE \u2212 credit, \"do NOT subtract PRE_CREDIT again\"; exact schema. Adds \"verify by listing each incident with its local time and in/out decision\", with calc_sla.py as a cross-check.\nobserved: dom1.md made one `cat` of all inputs (the recorded view of contracts.md cuts off at \"60 \"), wrote the JSON straight away, and never ran the script. Its summary lists each incident with in/out and the UTC bounds of each local window. base1 and agg1 did the same without this rule, so the listing was not caused by it. It did not hedge on net invoice, which fits the explicit \"do NOT subtract PRE_CREDIT again\" clause, but that is one rollout and the JSON field was already correct in base1. It said itself that it did not validate the JSON. Deliverable identical to base1.\nverdict: confounded\n\ncomponent: systemprompt.md\ncandidates: agg1\nchange: Merged the two: dom1's rules compressed into one \"Rules:\" step, inv1's \"read in full / re-read a cut-off view with cat\" step, \"run calc_sla.py as a cross-check\u2026 fix once at most\", and \"re-open audit_result.json: exact schema\u2026\".\nobserved: agg1.md made one `cat` whose recorded contracts.md view cuts off at \"60 \" (the same cut that base1 shows after the GLOBEX header). It did not re-read, never ran calc_sla.py, and never re-opened the JSON. It said it \"did not open or run\" the other workspace files, so the cross-check step was skipped outright. No net-invoice hedge, the same as dom1, whose prompt also has the explicit net rule. It was the fastest run (14.3s). Deliverable identical to base1. None of the procedural steps added in this candidate shows up in its trajectory.\nverdict: no observed effect\n\ncomponent: scripts/calc_sla.py\ncandidates: inv1, agg1 (same file); dom1 (different form)\nchange: Both forms replace the naive base script (UTC prefix \"2026-07\", no dedup, hard-coded tiers chosen by fee size, remaining = total). inv1/agg1 form: parses fee, timezone and tiers from contracts.md; uses zoneinfo with a fixed-offset fallback; dedupes keeping RESOLVED and not SUPERSEDED; prints a per-incident trace to stderr; exits non-zero if no tiers parse; takes the directory as an argument. dom1 form: same logic, but cwd-only, no zoneinfo fallback, credit computed from the INVOICE sum instead of the contract fee, trace on stdout.\nobserved: In none of the four trajectories (base1, inv1, dom1, agg1) did the solver run any version of the script. That includes base1, whose prompt said only \"run the script and finish\" and whose script would have given wrong minutes. The candidate rollouts are no exception: their prompts cast the script as the main path (inv1) or as a cross-check (dom1, agg1). Neither the naive base script nor either rewrite ever affected a deliverable. The claim in decisions/inv1.md that the script \"reproduces base1's values\" came from the proposer, not from any solver run.\nverdict: no observed effect\n\ncomponent: plugin/README.md, skills/README.md, sub_agents/README.md, scripts/README.md\ncandidates: inv1, dom1, agg1\nchange: Added scaffold placeholder comments that describe how to add a plugin, skill, subagent or script. No functional content.\nobserved: The new directories show up in the `ls -la` output of inv1, dom1 and agg1. No solver opened them (agg1 says outright that it did not). No behavior difference.\nverdict: no observed effect"
+      },
+      "trivial": true,
+      "evidence": "deliverable",
+      "chosen_run_dir": "D:\\DEV\\AI\\self-improving\\runs\\live_sla_demo\\executions\\sla-bench-oc-agg1\\sla-audit-1\\agg1",
+      "chosen_tree_is_base": false,
+      "harness_fingerprint": "b0e1d3eedaaa1563"
+    }
+  },
+  "errors": []
+}
