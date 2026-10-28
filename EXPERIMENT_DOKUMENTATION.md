@@ -79,7 +79,27 @@ In Harness² erhalten die Agenten ihren Kontext **zweigeteilt**: einerseits als 
 | **4. Experience Reflector** (`experience.agg1`) | **Opus** (`high`) | **2 Runs** (1 je Task) | **~1.350 Tokens** (`mission.md`) | **Task 1:** 70 Dateien (~20.640 Tok.)<br>**Task 2:** 73 Dateien (~22.750 Tok.) | ~58–94 s | **$1.20** ($0.58–$0.63 / Run) | Sieht **alle** Traces, Diffs und Entscheidungen der gesamten Runde (aber **keine** Ground-Truth). |
 | **Gesamtsumme Experiment** | **Multi-Tier Mix** | **16 Claude-Sessions** | — | — | **~7,5 Min.** | **ca. $2.38** *(über Abo gedeckt)* | **Ersparnis ggü. reinem Opus-Run: > 65 %** |
 
-*Hinweis zum Kosten-Effekt des Multi-Tier-Routings:* Hätte man alle 16 Sessions (inklusive der 8 Solver-Rollouts und 6 Proposer/Composer-Sessions) monolithisch mit `claude-opus` (`effort: high`) ausgeführt, läge das theoretische API-Äquivalent bei **ca. $7.50 bis $9.00** (bzw. dem ~3,5-fachen Verbrauch des Pro-Abo-Kontingents). Durch die Delegation der 8 Ausführungs-Läufe an `haiku` (~$0.16 zusammen) und der 6 Editier-Läufe an `sonnet` ($1.02 zusammen) entfiel die Hälfte des Budgets ($1.20) gezielt auf die beiden hochkarätigen Kausal-Reflexionen von `opus`.
+*Hinweis zum Kosten-Effekt des Multi-Tier-Routings:* Hätte man alle 16 Sessions (inklusive der 8 Solver-Rollouts und 6 Proposer/Composer-Sessions) monolithisch mit `claude-opus` (`effort: high`) ausgeführt, läge das theoretische API-Äquivalent bei **ca. $7.50 bis $9.00** (bzw. dem ~3,5-fachen Verbrauch des Pro-Abo-Kontingents). Durch die Delegation der 8 Ausführungs-Läufe an `haiku` (~$0.16 zusammen) und der 6 Editier-Läufe an `sonnet` ($1.02 zusammen) entfiel die Hälfte des Budgets ($1.20) gezielt auf die beiden hochkarätigen Kausal-Reflexionen von `opus`. Hinzu kamen für die übergeordnete Steuerung und Portierung in dieser Session durch **Google Gemini 4 Argon** noch einmal umgerechnet **ca. $0.30–$0.50** (Gesamt-Äquivalent des gesamten Experiments inkl. Entwicklung also **ca. $2.70–$2.90** bzw. ~2,50 €).
+
+#### Vergleich mit einem „nackten“ Durchlauf (ohne Selbstoptimierung) & das „Trainingslager“-Prinzip
+Was hätte es gekostet, die beiden Aufgaben `sla-audit-1` und `sla-audit-2` einfach nur direkt zu lösen – ganz ohne *Propose*, *Probe*, *Compose* und *Reflect*?
+
+| Modus | Agenten-Sessions (für 2 Tasks) | Gesamtdauer | Kosten (API-Äquivalent) | Kosten-Faktor |
+|---|---|---|---|---|
+| **Nackter Durchlauf** (nur 1x `Haiku` je Task, ohne Harness²) | **2 Sessions** | ~30 Sek. | **~$0.04** (ca. 2 Cent / Task) | **1x** |
+| **Nackter Durchlauf mit Sonnet/Opus** (ohne Harness²) | **2 Sessions** | ~45 Sek. | **~$0.12 – $0.45** | **3x – 11x** |
+| **Harness² Selbstoptimierungs-Lauf (`k=1`, Parallel)** | **16 Sessions** (8x Haiku, 6x Sonnet, 2x Opus) | ~7,5 Min. | **~$2.38** (ca. $1.19 / Task) | **~60x** |
+
+**Warum ist Harness² pro Aufgabe rund 60-mal teurer als ein nackter Haiku-Lauf – und wie nutzt man das wirtschaftlich klug (Das „Trainingslager“-Prinzip)?**
+1. **Warum entsteht der 60x-Overhead?**
+   Bei `k=1` macht Harness² aus einem einzelnen Aufgaben-Lauf sofort **8 Agenten-Sessions** (4 Rollouts `base1`, `inv1`, `dom1`, `agg1` + 2 Proposer + 1 Composer + 1 Reflector). Allein die beiden tiefen Kausal-Analysen durch **Claude Opus** (`EXPERIENCE.md`) kosten mit **$1.20** exakt die Hälfte des gesamten Budgets.
+2. **Wann lohnt sich Harness² NICHT?**
+   Wenn man eine Aufgabe nur 1- oder 2-mal ausführt. Um 2 Aufgaben im Wert von 4 Cent zu lösen, $2.38 in die Selbstoptimierung zu stecken, wäre wirtschaftlich unsinnig.
+3. **Das „Trainingslager“-Prinzip (Amortisation im Produktivbetrieb):**
+   Die wahre Stärke dieser Multi-Tier-Architektur entfaltet sich, wenn in einem Unternehmen **hunderte oder tausende gleichartige Aufgaben** (z. B. monatliche SLA-Audits, Rechnungsprüfungen, Daten-Migrationen) anfallen:
+   * **Phase A – Das Trainingslager (Aufgabe 1 bis 5):** Man schaltet Harness² mit den teuren Lehrmeister-Modellen (**Sonnet** als Tool-Entwickler + **Opus** als Kausal-Prüfer) für eine Handvoll repräsentativer Aufgaben ein. Einmalige Lern-Investition: **ca. $5 bis $10**. In dieser Phase schreiben Sonnet und Opus die perfekten deterministischen Python-Prüfskripte (`sla_check.py`), Guardrails und On-Demand-Skills (`SKILL.md`).
+   * **Phase B – Produktivbetrieb mit eingefrorenem Gewinner-Harness (ab Aufgabe 6 bis 10.000):** Sobald das Harness ausgereift ist, schaltet man die Selbstoptimierung ab und friert das gelernte Harness $H'$ ein. Ab jetzt führt das schnellste und billigste Modell (**Claude Haiku** für **2 Cent pro Aufgabe**) alle künftigen Aufgaben im Alleingang aus – aber ausgerüstet mit den Werkzeugen, Skripten und Leitplanken, die **Sonnet** und **Opus** ihm im Trainingslager maßgeschneidert haben.
+   * **Das Ergebnis:** Man erhält im laufenden Betrieb die **Präzision und Sicherheit von Opus/Sonnet zum Stückpreis von Haiku (2 Cent)**! Schon nach wenigen Dutzend Aufgaben haben sich die einmaligen „Ausbildungskosten“ aus dem Trainingslager vollständig amortisiert.
 
 ### 2.4 Die Test-Domäne: „SLA & Billing Reconciliation“ (`sla-audit-1` & `sla-audit-2`)
 Wir haben zwei aufeinanderfolgende Aufgaben aus derselben Domäne (`sla_reconciliation`) entworfen. In jeder Aufgabe muss der Agent für zwei Unternehmenskunden aus drei Quellen (`contracts.md`, `incidents.log`, `ledger_adjustments.csv`) die exakte SLA-Gutschrift für Juli 2026 berechnen und als `audit_result.json` ausgeben.
